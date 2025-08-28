@@ -1,6 +1,7 @@
 import pygame
 import random
 import math
+import time
 
 # Inicializar pygame
 pygame.init()
@@ -36,6 +37,7 @@ class Jugador(pygame.sprite.Sprite):
         self.velocidad = 5
         # Salud del jugador
         self.salud = 100
+        self.disparo_doble = False
         
     def update(self):
         # Obtener las teclas presionadas
@@ -58,6 +60,13 @@ class Jugador(pygame.sprite.Sprite):
         bala = Bala(self.rect.centerx, self.rect.top)
         todas_las_sprites.add(bala)
         balas.add(bala)
+        if self.disparo_doble:
+            bala2 = Bala(self.rect.centerx - 15, self.rect.top)
+            todas_las_sprites.add(bala2)
+            balas.add(bala2)
+            bala3 = Bala(self.rect.centerx + 15, self.rect.top)
+            todas_las_sprites.add(bala3)
+            balas.add(bala3)
 
 # Clase para las balas del jugador
 class Bala(pygame.sprite.Sprite):
@@ -85,17 +94,17 @@ class Bala(pygame.sprite.Sprite):
 class Enemigo(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
-        # Crear la imagen del enemigo (un rectángulo simple)
-        self.image = pygame.Surface([30, 30])
+        tamaño = random.randint(20, 60)
+        self.image = pygame.Surface([tamaño, tamaño])
         self.image.fill(ROJO)
         self.rect = self.image.get_rect()
-        # Posición inicial (aleatoria en la parte superior)
         self.rect.x = random.randrange(ANCHO - self.rect.width)
         self.rect.y = random.randrange(-100, -40)
-        # Velocidad del enemigo (aleatoria)
         self.velocidad_y = random.randrange(1, 4)
         self.velocidad_x = random.randrange(-2, 2)
-        
+        # Vida: 1 para el mínimo tamaño, hasta 3 para el máximo
+        self.vida = 1 + ((tamaño - 20) * 2) // 40  # 20-60 → 1-3
+
     def update(self):
         # Mover el enemigo
         self.rect.y += self.velocidad_y
@@ -128,10 +137,31 @@ class Explosion(pygame.sprite.Sprite):
         if self.tiempo_vida <= 0:
             self.kill()
 
+# Clase para los potenciadores
+class Potenciador(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.tipo = random.choice(['velocidad', 'doble'])
+        self.image = pygame.Surface([30, 30])
+        if self.tipo == 'velocidad':
+            self.image.fill(AZUL)
+        else:
+            self.image.fill(VERDE)
+        self.rect = self.image.get_rect()
+        self.rect.x = random.randrange(ANCHO - self.rect.width)
+        self.rect.y = random.randrange(-100, -40)
+        self.velocidad_y = 3
+
+    def update(self):
+        self.rect.y += self.velocidad_y
+        if self.rect.top > ALTO:
+            self.kill()
+
 # Crear grupos de sprites
 todas_las_sprites = pygame.sprite.Group()
 enemigos = pygame.sprite.Group()
 balas = pygame.sprite.Group()
+potenciadores = pygame.sprite.Group()
 
 # Crear jugador
 jugador = Jugador()
@@ -150,6 +180,8 @@ fuente = pygame.font.SysFont('Arial', 30)
 # Bucle principal del juego
 ejecutando = True
 game_over = False
+potenciador_activo = None
+potenciador_tiempo = 0
 
 while ejecutando:
     # Mantener el bucle funcionando a la velocidad correcta
@@ -178,23 +210,48 @@ while ejecutando:
                     todas_las_sprites.add(enemigo)
                     enemigos.add(enemigo)
     
+    # Aparición aleatoria de potenciadores
+    if not game_over and random.random() < 0.005:
+        potenciador = Potenciador()
+        todas_las_sprites.add(potenciador)
+        potenciadores.add(potenciador)
+
     if not game_over:
         # Actualizar
         todas_las_sprites.update()
         
-        # Colisiones entre balas y enemigos
-        hits = pygame.sprite.groupcollide(enemigos, balas, True, True)
+        # Colisión con potenciadores
+        hits = pygame.sprite.spritecollide(jugador, potenciadores, True)
         for hit in hits:
-            # Aumentar puntuación
-            puntuacion += 10
-            # Crear explosión
-            explosion = Explosion(hit.rect.center)
-            todas_las_sprites.add(explosion)
-            # Crear nuevo enemigo
-            enemigo = Enemigo()
-            todas_las_sprites.add(enemigo)
-            enemigos.add(enemigo)
-        
+            potenciador_activo = hit.tipo
+            potenciador_tiempo = pygame.time.get_ticks()
+
+            if potenciador_activo == 'velocidad':
+                jugador.velocidad = 10
+            elif potenciador_activo == 'doble':
+                jugador.disparo_doble = True
+
+        # Desactivar potenciador tras 5 segundos
+        if potenciador_activo:
+            if pygame.time.get_ticks() - potenciador_tiempo > 5000:
+                potenciador_activo = None
+                jugador.velocidad = 5
+                jugador.disparo_doble = False
+
+        # Colisiones entre balas y enemigos
+        hits = pygame.sprite.groupcollide(enemigos, balas, False, True)
+        for enemigo, balas_impacto in hits.items():
+            enemigo.vida -= len(balas_impacto)
+            if enemigo.vida <= 0:
+                puntuacion += 10
+                explosion = Explosion(enemigo.rect.center)
+                todas_las_sprites.add(explosion)
+                enemigo.kill()
+                # Crear nuevo enemigo
+                nuevo_enemigo = Enemigo()
+                todas_las_sprites.add(nuevo_enemigo)
+                enemigos.add(nuevo_enemigo)
+
         # Colisiones entre jugador y enemigos
         hits = pygame.sprite.spritecollide(jugador, enemigos, True)
         for hit in hits:
